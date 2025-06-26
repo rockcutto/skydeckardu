@@ -1,41 +1,69 @@
 # SkyDeck
 
-![Display](display.png)
+![SkyDeck Mounted on Steam Deck](display.png)
 
-The skydeck combines a ground station, rc link, and fpv system in a steam deck to create an efficient and portable way to control ardupilot drones
+**SkyDeck** turns your Steam Deck into a fully-integrated drone controller: combining RC link, MAVLink ground station, and low-latency FPV in one portable unit.
 
-## Hardware
+---
 
-Files for 3D printing the backpack can be found here: https://cad.onshape.com/documents/0a85f5b80c6099a2fc1cf05d/w/0408ca52d32ec3c9c9f8f564/e/62ef1ad992c53a1e1d5da3ef?renderMode=0&uiState=656f69ab29fbb41151b55d58
+## 📦 Hardware
 
-I am working on a list of hardware that will be finalized once I complete a full system test. BElow is what I currently have:
-- Steam Deck
-- Happymodel ES24 TX
-- ESP32S2 Mini
-- Walksnail VRX Module
-- HDMI Capture Card
+*Current Bill of Materials (subject to change after full testing):*
+- **Steam Deck**  
+- **Happymodel ES24 TX** (ExpressLRS module)  
+- **ESP32-S2 Mini** (joystick→CRSF adapter)  
+- **Walksnail VRX** video receiver  
+- **HDMI USB capture card**  
+- **3D-printed backpack & mounts**  
+  → CAD files on Onshape:  
+  https://cad.onshape.com/documents/0a85f5b80c6099a2fc1cf05d/w/0408ca52d32ec3c9c9f8f564/e/62ef1ad992c53a1e1d5da3ef
 
-## RC and Mavlink
+---
 
-RC control and mavlink are both done over a single transmitter using ExpressLRS with the rc-mavlink functionality
+## 🎮 RC & MAVLink
 
-// add details on setup
+1. **Python sender** (`host/skydeck_joystick_sender.py`):  
+   - Reads Steam Deck controller via `inputs` (evdev).  
+   - Normalizes 8 channels (LY, LX, RY, RX, LT, RT, LB, RB) to 0–800.  
+   - Streams `000800400…:` over USB-CDC at 100 Hz.
+2. **ESP32-S2 firmware** (`esp32/`):  
+   - Parses incoming 3-digit channels + `:`.  
+   - Packs into CRSF frames.  
+   - Sends UART2→ExpressLRS module (RC + MAVLink on one link).
 
-## FPV
+---
 
-To pair with low latency RC control, skydeck uses the Walksnail VRX for video feed. This pairs nicely with an OLED steam deck and allows for manual fpv flying
+## 📹 FPV Video
 
-// add details
+- **Walksnail VRX** provides low-latency HDMI output.  
+- **USB capture card** feeds HDMI into Steam Deck’s Desktop Mode.  
+- View video in a window alongside your GCS.
 
-## GUI and Input
+---
 
-Mission planner is used as a GCS and can be installed on the steam deck using mono and following these instructions:
-https://aur.archlinux.org/packages/ardupilot-mission-planner
+## 🖥️ Software & GUI
 
-Some custom code modified from kkbin505's excellent DIY elrs transmitter code is used to send crsf packets from an ESP32 to the ELRS tx module. This is paired with a python script on the steam deck that sends deck controller output to the ESP32.
+1. **Ground Control Station**  
+   - Mission Planner under Mono on Steam Deck.  
+   - Install via AUR:  
+     ```bash
+     yay -S ardupilot-mission-planner
+     ```
+2. **Host tooling** (`host/` folder):  
+   - `install.sh` → creates `skydeck_env` venv & installs dependencies.  
+   - `deck.sh` → auto-activates venv, runs the sender script.
 
-## A note on reliability
+---
 
-This project uses a very software heavy approach to allow RC control. As always, set a failsafe before you fly, and follow the local regulations regarding drones.
+## 🚀 Quick Start
 
+1. **Flash ESP32-S2**  
+   ```bash
+   cd esp32
+   idf.py -p /dev/ttyUSB0 flash monitor
+Setup host
 
+```bash
+    ./install.sh
+    chmod +x deck.sh
+```
