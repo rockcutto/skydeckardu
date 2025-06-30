@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 skydeck_joystick_sender.py
-
-Считывает события геймпада (inputs),
-мапит в 8 каналов 0..800 + “:”
-и шлёт по Serial для ESP32 → CRSF.
+Serial ESP32 → CRSF.
 """
 
 import argparse
@@ -27,21 +24,17 @@ MAX_JOY_VAL  = 32767.0
 MAX_TRIG_VAL = 255.0
 DEADZONE     = 0.05
 
-
 def map_axis(v: float) -> int:
     """[-1..1] → [0..800]"""
     return int((v + 1) * 400)
-
 
 def map_trigger(v: float) -> int:
     """[0..1] → [0..800]"""
     return int(v * 800)
 
-
 class Ctrl:
     """
-    Фоновый поток, который читает get_gamepad() и кладёт текущие
-    значения в self.state по ключам event.code → float/int.
+    Фоновый поток для get_gamepad(), актуальные значения доступны через self.read_values()
     """
     def __init__(self):
         self._lock = threading.Lock()
@@ -55,7 +48,7 @@ class Ctrl:
         self.thread.join(timeout=1)
 
     def read_values(self) -> List[float]:
-        """Возвращает снэпшот в порядке [LX, LY, RX, RY, LT, LB, RT, RB]."""
+        """[LX, LY, RX, RY, LT, LB, RT, RB]"""
         with self._lock:
             s = self._state.copy()
         return [
@@ -70,15 +63,13 @@ class Ctrl:
         ]
 
     def _run(self):
-        # Карта кода → функция нормализации
         normalize = {
-            "ABS_X":  lambda v: self._norm_axis(v),
-            "ABS_Y":  lambda v: self._norm_axis(v),
-            "ABS_RX": lambda v: self._norm_axis(v),
-            "ABS_RY": lambda v: self._norm_axis(v),
-            "ABS_Z":  lambda v: self._norm_trig(v),
-            "ABS_RZ": lambda v: self._norm_trig(v),
-            # кнопки оставляем 0 или 1
+            "ABS_X":  self._norm_axis,
+            "ABS_Y":  self._norm_axis,
+            "ABS_RX": self._norm_axis,
+            "ABS_RY": self._norm_axis,
+            "ABS_Z":  self._norm_trig,
+            "ABS_RZ": self._norm_trig,
             "BTN_TL": lambda v: v,
             "BTN_TR": lambda v: v,
         }
@@ -92,7 +83,7 @@ class Ctrl:
             except UnpluggedError:
                 logging.warning("Gamepad unplugged, retry in 0.5s")
                 time.sleep(0.5)
-            except Exception as ex:
+            except Exception:
                 logging.exception("Unexpected get_gamepad error")
                 time.sleep(0.1)
 
@@ -104,7 +95,6 @@ class Ctrl:
     @staticmethod
     def _norm_trig(v: int) -> float:
         return max(0.0, min(1.0, v / MAX_TRIG_VAL))
-
 
 def format_packet(vals: List[float]) -> bytes:
     """
@@ -124,7 +114,6 @@ def format_packet(vals: List[float]) -> bytes:
     )
     return s.encode("ascii")
 
-
 @contextmanager
 def open_serial(port: str, baud: int):
     ser = serial.Serial(port, baud, timeout=1)
@@ -133,6 +122,15 @@ def open_serial(port: str, baud: int):
     finally:
         ser.close()
 
+def auto_find_port(baud: int) -> str:
+    for c in ("/dev/ttyACM0", "/dev/ttyACM1"):
+        try:
+            with serial.Serial(c, baud, timeout=0.1):
+                return c
+        except Exception:
+            continue
+    logging.error("Не найден ни один /dev/ttyACM[01]")
+    sys.exit(1)
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -143,20 +141,7 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    # если не указан, ищем ttyACMx
-    port = args.port
-    if not port:
-        for c in ("/dev/ttyACM0", "/dev/ttyACM1"):
-            try:
-                with serial.Serial(c, args.baud, timeout=0.1):
-                    port = c
-                    break
-            except Exception:
-                continue
-        if not port:
-            logging.error("Не нашёл /dev/ttyACM[01]")
-            sys.exit(1)
-
+    port = args.port or auto_find_port(args.baud)
     logging.info("Открываю Serial %s @%d", port, args.baud)
     ctrl = Ctrl()
     interval = 1.0 / args.rate
@@ -171,12 +156,10 @@ def main():
                 dt = time.time() - t0
                 if dt < interval:
                     time.sleep(interval - dt)
-
     except KeyboardInterrupt:
         logging.info("Выход по Ctrl-C")
     finally:
         ctrl.stop()
-
 
 if __name__ == "__main__":
     main()
